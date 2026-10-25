@@ -17,12 +17,15 @@ const REGION_DISPLAY_CONFIG = {
     俄罗斯: { flag: '🇷🇺', name: '俄国节点' },
     印度: { flag: '🇮🇳', name: '印度节点' },
     土耳其: { flag: '🇹🇷', name: '土耳其节点' },
+    尼日利亚: { flag: '🇳🇬', name: '尼日利亚节点' },
 };
 
 export const REGION_GROUP_PATTERNS = [
     { name: '🇭🇰 香港节点', pattern: /港|HK|Hong Kong/i },
     { name: '🇹🇼 台湾节点', pattern: /台|TW|Taiwan/i },
-    { name: '🇯🇵 日本节点', pattern: /日|JP|Japan/i },
+    // Must precede Japan because “尼日利亚” contains the character “日”.
+    { name: '🇳🇬 尼日利亚节点', pattern: /🇳🇬|尼日利[亚亞]|奈及利[亚亞]|Nigeria|Nigerian|Lagos|Abuja|(?:^|[\s|_-])(?:NG|NGA)(?=$|[\s|_-])/i },
+    { name: '🇯🇵 日本节点', pattern: /🇯🇵|日|JP|Japan/i },
     { name: '🇸🇬 狮城节点', pattern: /狮城|新|SG|Singapore/i },
     { name: '🇺🇸 美国节点', pattern: /美|US|America/i },
     { name: '🇰🇷 韩国节点', pattern: /韩|KR|Korea/i },

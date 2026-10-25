@@ -190,7 +190,12 @@ export function generateBuiltinClashConfig(nodeList, options = {}) {
             : getRemoteProviderDefinitions('clash', rawRules);
 
         // 转换规则行为最终字符串
-        const clashRules = rawRules
+        const clashRules = [
+            ...(isHiddifyClient
+                ? []
+                : ['GEOSITE,private,DIRECT', 'GEOIP,private,DIRECT,no-resolve']),
+            ...rawRules,
+        ]
             .map((r) => {
                 if (typeof r === 'string') return r;
                 if (r.type === 'rule-provider') return `RULE-SET,${r.provider},${r.target}`;

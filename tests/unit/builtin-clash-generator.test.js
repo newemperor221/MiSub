@@ -53,6 +53,10 @@ describe('Clash 内置生成器', () => {
             '223.5.5.5',
             '119.29.29.29',
         ]);
+        expect(parsed.rules.slice(0, 2)).toEqual([
+            'GEOSITE,private,DIRECT',
+            'GEOIP,private,DIRECT,no-resolve',
+        ]);
     });
     it('should render SS v2ray-plugin mux as a boolean for Clash compatibility', () => {
         const node =
