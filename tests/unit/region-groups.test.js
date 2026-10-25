@@ -34,4 +34,54 @@ describe('region group overrides', () => {
         expect(japanGroup?.tags).toEqual(['🇯🇵 大阪']);
         expect(japanGroup?.tags).not.toContain('🌍 尼日利亚');
     });
+
+    it('should use a leading exit flag instead of a relay annotation', () => {
+        const groups = groupNodeLinesByRegion([
+            {
+                name: '🇸🇬 新加坡 - 野草云香港中转',
+                tag: '🇸🇬 新加坡 - 野草云香港中转',
+                metadata: { region: '香港' },
+            },
+            {
+                name: '🇳🇬 尼日利亚 - 野草云香港中转',
+                tag: '🇳🇬 尼日利亚 - 野草云香港中转',
+                metadata: { region: '香港' },
+            },
+        ]);
+
+        expect(groups.find((group) => group.name === '🇸🇬 狮城节点')?.tags).toHaveLength(1);
+        expect(groups.find((group) => group.name === '🇳🇬 尼日利亚节点')?.tags).toHaveLength(1);
+        expect(groups.find((group) => group.name === '🇭🇰 香港节点')).toBeUndefined();
+    });
+
+    it('should let every configured leading flag outrank conflicting metadata', () => {
+        const cases = [
+            ['🇭🇰', '🇭🇰 香港节点'],
+            ['🇹🇼', '🇹🇼 台湾节点'],
+            ['🇯🇵', '🇯🇵 日本节点'],
+            ['🇸🇬', '🇸🇬 狮城节点'],
+            ['🇺🇸', '🇺🇸 美国节点'],
+            ['🇰🇷', '🇰🇷 韩国节点'],
+            ['🇬🇧', '🇬🇧 英国节点'],
+            ['🇩🇪', '🇩🇪 德国节点'],
+            ['🇫🇷', '🇫🇷 法国节点'],
+            ['🇨🇦', '🇨🇦 加拿大节点'],
+            ['🇦🇺', '🇦🇺 澳洲节点'],
+            ['🇧🇷', '🇧🇷 巴西节点'],
+            ['🇪🇸', '🇪🇸 西班牙节点'],
+            ['🇳🇱', '🇳🇱 荷兰节点'],
+            ['🇷🇺', '🇷🇺 俄国节点'],
+            ['🇮🇳', '🇮🇳 印度节点'],
+            ['🇹🇷', '🇹🇷 土耳其节点'],
+            ['🇳🇬', '🇳🇬 尼日利亚节点'],
+        ];
+
+        for (const [flag, expectedGroup] of cases) {
+            const tag = `${flag} 出口 - 香港中转`;
+            const groups = groupNodeLinesByRegion([
+                { name: tag, tag, metadata: { region: '香港' } },
+            ]);
+            expect(groups.map((group) => group.name)).toEqual([expectedGroup]);
+        }
+    });
 });

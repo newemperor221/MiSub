@@ -12,6 +12,7 @@ import {
     DEFAULT_SELECT_GROUP,
     DEFAULT_RELAY_GROUP,
     pruneProxyGroups,
+    preparePolicyProxyNames,
 } from './builtin-rules-provider.js';
 
 const ICON_REPO = 'https://raw.githubusercontent.com/Koolson/Qure/master/IconSet/Color';
@@ -271,6 +272,7 @@ export function generateBuiltinQuanxConfig(nodeList, options = {}) {
 
     // 转换为 Clash 代理对象
     const proxies = urlsToClashProxies(nodeUrls, options);
+    const levelKey = (ruleLevel || 'std').toUpperCase();
 
     // 应用 UDP 开关
     // (已在 urlsToClashProxies 中全局处理)
@@ -278,7 +280,10 @@ export function generateBuiltinQuanxConfig(nodeList, options = {}) {
     for (const clashProxy of proxies) {
         const baseName = sanitizeNodeName(clashProxy.name);
         clashProxy.name = getUniqueName(baseName, usedNames);
+    }
+    preparePolicyProxyNames(proxies, levelKey, options);
 
+    for (const clashProxy of proxies) {
         const line = buildQxLine(clashProxy);
         if (!line) continue;
 
@@ -302,7 +307,6 @@ export function generateBuiltinQuanxConfig(nodeList, options = {}) {
     sections.push(`[server_remote]`);
     sections.push(`[server_local]\n${proxyLines.join('\n')}`);
 
-    const levelKey = (ruleLevel || 'std').toUpperCase();
     const policyFactory = POLICY_GROUPS[levelKey] || POLICY_GROUPS.STD;
     let abstractGroups = policyFactory(proxiesWithMetadata, options);
     abstractGroups = pruneProxyGroups(abstractGroups, proxiesWithMetadata);

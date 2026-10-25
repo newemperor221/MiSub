@@ -76,6 +76,35 @@ export const AI_DOMAIN_RULE_LINES = AI_SERVICE_RULES.flatMap((service) =>
     service.domains.map((domain) => `DOMAIN-SUFFIX,${domain},🤖 ${service.name}`)
 );
 
+const MANUAL_AI_SERVICE_RULES = AI_SERVICE_RULES.filter((service) =>
+    ['openai', 'claude', 'ai-platforms'].includes(service.id)
+);
+const MANUAL_AI_DOMAIN_RULE_LINES = MANUAL_AI_SERVICE_RULES.flatMap((service) =>
+    service.domains.map((domain) => `DOMAIN-SUFFIX,${domain},🤖 ${service.name}`)
+);
+
+const MANUAL_SERVICE_DEFINITIONS = Object.freeze([
+    { name: '💳 PayPal', domains: ['paypal.com', 'paypalobjects.com'] },
+    { name: '🐦 Twitter', domains: ['x.com', 'twitter.com', 'twimg.com', 't.co'] },
+    { name: '📺 YouTube', domains: ['youtube.com', 'youtu.be', 'googlevideo.com', 'ytimg.com'] },
+    {
+        name: '🎵 TikTok',
+        domains: ['tiktok.com', 'tiktokcdn.com', 'tiktokv.com', 'byteoversea.com'],
+    },
+    {
+        name: '👽 Reddit',
+        domains: ['reddit.com', 'redd.it', 'redditmedia.com', 'redditstatic.com'],
+    },
+    { name: '🔍 Google', domains: ['google.com', 'googleapis.com', 'gstatic.com'] },
+    {
+        name: '♾️ Meta',
+        domains: ['meta.com', 'facebook.com', 'fbcdn.net', 'instagram.com', 'whatsapp.com'],
+    },
+]);
+const MANUAL_SERVICE_DOMAIN_RULE_LINES = MANUAL_SERVICE_DEFINITIONS.flatMap((service) =>
+    service.domains.map((domain) => `DOMAIN-SUFFIX,${domain},${service.name}`)
+);
+
 const AI_AUTO_GROUP = '🤖 AI 自动';
 const AI_FALLBACK_GROUP = '🤖 AI 故障转移';
 
@@ -218,6 +247,64 @@ function _generateRegionGroups(proxies, options = {}) {
     return { regionSelectGroups, regionSupportGroups, regionNames };
 }
 
+function renameProxyGroupCollisions(proxies, reservedGroupNames) {
+    const reserved = new Set(reservedGroupNames);
+    const used = new Set(proxies.map((proxy) => proxy.tag || proxy.name));
+    let renamed = false;
+
+    proxies.forEach((proxy) => {
+        const currentName = proxy.tag || proxy.name;
+        if (!reserved.has(currentName)) return;
+
+        let candidate = `${currentName} 线路`;
+        let suffix = 2;
+        while (used.has(candidate) || reserved.has(candidate)) {
+            candidate = `${currentName} 线路 ${suffix}`;
+            suffix += 1;
+        }
+
+        used.delete(currentName);
+        used.add(candidate);
+        proxy.name = candidate;
+        if (Object.hasOwn(proxy, 'tag')) proxy.tag = candidate;
+        renamed = true;
+    });
+    return renamed;
+}
+
+export function preparePolicyProxyNames(proxies, levelKey, options = {}) {
+    if (String(levelKey || '').toUpperCase() !== 'FULL') return proxies;
+
+    const staticGroupNames = [
+        DNS_PROXY_GROUP,
+        DEFAULT_SELECT_GROUP,
+        ...MANUAL_AI_SERVICE_RULES.map((service) => `🤖 ${service.name}`),
+        ...MANUAL_SERVICE_DEFINITIONS.map((service) => service.name),
+        '🎬 Netflix',
+        '🎬 视频广告',
+        '🍎 Apple',
+        'Ⓜ️ Microsoft',
+        '📲 Telegram',
+        '🎧 Spotify',
+        '🎮 游戏平台',
+    ];
+    const maxPasses = proxies.length * 2 + 4;
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+        const regionLayout = _generateRegionGroups(proxies, {
+            ...options,
+            compactRegionNames: true,
+        });
+        const renamed = renameProxyGroupCollisions(proxies, [
+            ...regionLayout.regionNames,
+            ...regionLayout.regionSupportGroups.map((group) => group.name),
+            ...staticGroupNames,
+        ]);
+        if (!renamed) return proxies;
+    }
+
+    throw new Error('Unable to stabilize FULL proxy and policy-group names');
+}
+
 /**
  * 策略组工厂
  */
@@ -304,75 +391,71 @@ export const POLICY_GROUPS = {
     },
     // 完整配置：细化分类
     FULL: (proxies, options = {}) => {
+        preparePolicyProxyNames(proxies, 'FULL', options);
+        const regionLayout = _generateRegionGroups(proxies, {
+            ...options,
+            compactRegionNames: true,
+        });
+        const { regionSelectGroups, regionSupportGroups, regionNames } = regionLayout;
         const proxyNames = proxies.map((p) => p.tag || p.name);
-        const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(
-            proxies,
-            options
-        );
+        const manualCandidates = [...regionNames, ...proxyNames];
+        const usGroup = regionSelectGroups.find((group) => group.name === '🇺🇸 美国');
+        const usNodes = (usGroup?.proxies || []).filter((name) => !name.startsWith('⚡️'));
+        const paypalCandidates = usNodes.length > 0 ? usNodes : manualCandidates;
+        const manualAiGroups = MANUAL_AI_SERVICE_RULES.map((service) => ({
+            name: `🤖 ${service.name}`,
+            type: 'select',
+            proxies: manualCandidates,
+        }));
+        const manualServiceGroups = MANUAL_SERVICE_DEFINITIONS.map((service) => ({
+            name: service.name,
+            type: 'select',
+            proxies:
+                service.name === '💳 PayPal'
+                    ? [...paypalCandidates, 'DIRECT']
+                    : [...manualCandidates, 'DIRECT'],
+        }));
 
         return [
             dnsProxyGroup(proxyNames),
             {
                 name: DEFAULT_SELECT_GROUP,
                 type: 'select',
-                proxies: [
-                    AUTO_SELECT_GROUP,
-                    FALLBACK_GROUP,
-                    MANUAL_SELECT_GROUP,
-                    ...regionNames,
-                    'DIRECT',
-                ],
+                proxies: [...proxyNames, ...regionNames, 'DIRECT'],
             },
-            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
-            { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
-            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: proxyNames },
             ...regionSelectGroups,
-            // AI 服务始终使用代理候选；无可用节点时由 pruneProxyGroups 保持 REJECT。
-            ...aiPolicyGroups(proxyNames, regionNames),
-            { name: '🎬 视频广告', type: 'select', proxies: ['REJECT', 'DIRECT'] },
+            ...manualAiGroups,
+            ...manualServiceGroups,
             {
-                name: '🎥 流媒体',
+                name: '🎬 Netflix',
                 type: 'select',
-                proxies: [
-                    '🇸🇬 狮城节点',
-                    '🇭🇰 香港节点',
-                    '🇹🇼 台湾节点',
-                    '🇯🇵 日本节点',
-                    AUTO_SELECT_GROUP,
-                    MANUAL_SELECT_GROUP,
-                    'DIRECT',
-                ],
+                proxies: [...manualCandidates, 'DIRECT'],
             },
+            { name: '🎬 视频广告', type: 'select', proxies: ['REJECT', 'DIRECT'] },
             {
                 name: '🍎 Apple',
                 type: 'select',
-                proxies: ['DIRECT', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP],
+                proxies: ['DIRECT', ...manualCandidates],
             },
             {
                 name: 'Ⓜ️ Microsoft',
                 type: 'select',
-                proxies: ['DIRECT', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP],
+                proxies: ['DIRECT', ...manualCandidates],
             },
             {
                 name: '📲 Telegram',
                 type: 'select',
-                proxies: [
-                    AUTO_SELECT_GROUP,
-                    '🇸🇬 狮城节点',
-                    '🇭🇰 香港节点',
-                    MANUAL_SELECT_GROUP,
-                    'DIRECT',
-                ],
+                proxies: [...manualCandidates, 'DIRECT'],
             },
             {
                 name: '🎧 Spotify',
                 type: 'select',
-                proxies: [AUTO_SELECT_GROUP, '🇸🇬 狮城节点', MANUAL_SELECT_GROUP, 'DIRECT'],
+                proxies: [...manualCandidates, 'DIRECT'],
             },
             {
                 name: '🎮 游戏平台',
                 type: 'select',
-                proxies: ['DIRECT', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP],
+                proxies: ['DIRECT', ...manualCandidates],
             },
             ...regionSupportGroups,
         ];
@@ -610,12 +693,11 @@ export const RULE_SETS = {
     FULL: [
         'RULE-SET,ADS,🎬 视频广告',
         'RULE-SET,SOCIAL,📲 Telegram',
-        ...AI_DOMAIN_RULE_LINES,
-        'RULE-SET,AI,🤖 智能 AI',
-        'RULE-SET,STREAM,🎥 流媒体',
+        ...MANUAL_AI_DOMAIN_RULE_LINES,
+        ...MANUAL_SERVICE_DOMAIN_RULE_LINES,
+        'RULE-SET,STREAM,🎬 Netflix',
         'RULE-SET,APPLE,🍎 Apple',
         'RULE-SET,MICROSOFT,Ⓜ️ Microsoft',
-        `DOMAIN-SUFFIX,google.com,${DEFAULT_SELECT_GROUP}`,
         `DOMAIN-SUFFIX,github.com,${DEFAULT_SELECT_GROUP}`,
         'GEOIP,CN,DIRECT',
         `MATCH,${DEFAULT_SELECT_GROUP}`,

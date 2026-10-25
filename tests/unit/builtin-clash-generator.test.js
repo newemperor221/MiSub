@@ -162,6 +162,70 @@ describe('Clash 内置生成器', () => {
         expect(parsed.rules).toContain('DOMAIN-SUFFIX,grok.com,🤖 Grok');
     });
 
+    it('FULL 应使用精简手动策略组并增加指定服务分流', () => {
+        const nodes = [
+            'trojan://password@us1.example.com:443#🇺🇸 洛杉矶 CN2',
+            'trojan://password@us2.example.com:443#🇺🇸 洛杉矶',
+            'trojan://password@sg.example.com:443#🇸🇬 新加坡',
+            'trojan://password@jp.example.com:443#🇯🇵 大阪',
+            'trojan://password@ng.example.com:443#🌍 尼日利亚',
+        ].join('\n');
+        const parsed = yaml.load(generateBuiltinClashConfig(nodes, { ruleLevel: 'full' }));
+        const groups = parsed['proxy-groups'];
+        const names = groups.map((group) => group.name);
+        const main = groups.find((group) => group.name === '🚀 节点选择');
+
+        expect(names).toEqual(expect.arrayContaining(['🇺🇸 美国', '🇸🇬 新加坡', '🇯🇵 日本', '🇳🇬 尼日利亚']));
+        expect(names.some((name) => name.endsWith('节点'))).toBe(false);
+        expect(names).not.toEqual(
+            expect.arrayContaining([
+                '♻️ 自动选择',
+                '🔯 故障转移',
+                '👋 手动切换',
+                '🤖 智能 AI',
+                '🤖 Gemini',
+                '🤖 Copilot',
+                '🤖 Grok',
+                '🤖 Perplexity',
+                '🤖 Mistral',
+                '🤖 DeepSeek',
+            ])
+        );
+        expect(names).toEqual(
+            expect.arrayContaining([
+                '💳 PayPal',
+                '🐦 Twitter',
+                '🎬 Netflix',
+                '📺 YouTube',
+                '🎵 TikTok',
+                '👽 Reddit',
+                '🔍 Google',
+                '♾️ Meta',
+            ])
+        );
+        expect(main.proxies).toEqual(
+            expect.arrayContaining([
+                '🇺🇸 洛杉矶 CN2',
+                '🇸🇬 新加坡 线路',
+                '🌍 尼日利亚',
+                'DIRECT',
+            ])
+        );
+        const proxyNames = new Set(parsed.proxies.map((proxy) => proxy.name));
+        expect([...names].filter((name) => proxyNames.has(name))).toEqual([]);
+        for (const group of groups) {
+            expect(new Set(group.proxies || []).size).toBe((group.proxies || []).length);
+        }
+        expect(parsed.rules).toContain('RULE-SET,STREAM,🎬 Netflix');
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,paypal.com,💳 PayPal');
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,x.com,🐦 Twitter');
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,youtube.com,📺 YouTube');
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,tiktok.com,🎵 TikTok');
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,reddit.com,👽 Reddit');
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,google.com,🔍 Google');
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,facebook.com,♾️ Meta');
+    });
+
     it('hysteria2 节点应同时输出 auth 与 password 字段以兼容 Stash', () => {
         const result = generateBuiltinClashConfig(
             'hysteria2://pass123@1.2.3.4:443?sni=1.2.3.4#HY2Node',

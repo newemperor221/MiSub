@@ -20,7 +20,17 @@ const REGION_DISPLAY_CONFIG = {
     尼日利亚: { flag: '🇳🇬', name: '尼日利亚节点' },
 };
 
+const LEADING_EXIT_FLAG_PATTERNS = Object.entries(REGION_DISPLAY_CONFIG).map(
+    ([region, config]) => ({
+        region,
+        name: `${config.flag} ${config.name}`,
+        pattern: new RegExp(`^${config.flag}`, 'u'),
+    })
+);
+
 export const REGION_GROUP_PATTERNS = [
+    // Prefer an explicit leading exit flag over relay annotations later in the name.
+    ...LEADING_EXIT_FLAG_PATTERNS,
     { name: '🇭🇰 香港节点', pattern: /港|HK|Hong Kong/i },
     { name: '🇹🇼 台湾节点', pattern: /台|TW|Taiwan/i },
     // Must precede Japan because “尼日利亚” contains the character “日”.
@@ -37,6 +47,14 @@ export const REGION_GROUP_PATTERNS = [
     { name: '🇳🇱 荷兰节点', pattern: /荷兰|NL|Netherlands/i },
     { name: '🇦🇺 澳洲节点', pattern: /澳|AU|Australia/i },
 ];
+
+function regionKeyForGroupName(groupName) {
+    const configuredRegion = Object.entries(REGION_DISPLAY_CONFIG).find(
+        ([, config]) => `${config.flag} ${config.name}` === groupName
+    )?.[0];
+    const match = groupName.match(/[\u4e00-\u9fa5]+/);
+    return configuredRegion || (match ? match[0].replace('节点', '') : '其他');
+}
 
 function normalizeRegionOverrides(overrides = []) {
     if (!Array.isArray(overrides)) return [];
@@ -63,10 +81,16 @@ export function groupNodeLinesByRegion(nodes = [], options = {}) {
         const tagName = node.tag || node.name;
         let region = '其他';
         const override = regionOverrides.find((rule) => rule.pattern.test(tagName));
+        const leadingExit = LEADING_EXIT_FLAG_PATTERNS.find(({ pattern }) =>
+            pattern.test(tagName)
+        );
 
         // 1. 用户自定义规则优先，用于修正自动地区识别误判
         if (override) {
             region = override.region;
+        } else if (leadingExit) {
+            // A leading flag is an explicit exit-region declaration and outranks inferred IP metadata.
+            region = leadingExit.region;
         } else if (node.metadata && node.metadata.region && node.metadata.region !== '其他') {
             // 2. 使用预提取的元数据
             region = node.metadata.region;
@@ -74,9 +98,7 @@ export function groupNodeLinesByRegion(nodes = [], options = {}) {
             // 3. 回退到正则匹配逻辑
             for (const { name: groupName, pattern } of REGION_GROUP_PATTERNS) {
                 if (pattern.test(tagName)) {
-                    // [核心修复] 增强提取能力：直接由预设名称提取中文核心地名，解决 split 导致的问题
-                    const match = groupName.match(/[\u4e00-\u9fa5]+/);
-                    region = match ? match[0].replace('节点', '') : '其他';
+                    region = regionKeyForGroupName(groupName);
                     break;
                 }
             }
@@ -98,8 +120,11 @@ export function groupNodeLinesByRegion(nodes = [], options = {}) {
 
     const result = [];
     groups.forEach((matchedNodes, name) => {
+        const displayName = options.compactRegionNames
+            ? name.replace('🇸🇬 狮城节点', '🇸🇬 新加坡').replace(/节点$/, '')
+            : name;
         result.push({
-            name,
+            name: displayName,
             tags: matchedNodes.map((item) => item.tag || item.name),
             nodes: matchedNodes,
             count: matchedNodes.length,

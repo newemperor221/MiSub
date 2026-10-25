@@ -19,6 +19,7 @@ import {
     DEFAULT_SELECT_GROUP,
     DEFAULT_RELAY_GROUP,
     pruneProxyGroups,
+    preparePolicyProxyNames,
 } from './builtin-rules-provider.js';
 
 /**
@@ -309,6 +310,7 @@ export function generateBuiltinLoonConfig(nodeList, options = {}) {
 
     // 转换为 Clash 代理对象
     const proxies = urlsToClashProxies(nodeUrls, options);
+    const levelKey = (ruleLevel || 'std').toUpperCase();
 
     // 应用 UDP 开关
     // (已在 urlsToClashProxies 中全局处理)
@@ -317,11 +319,14 @@ export function generateBuiltinLoonConfig(nodeList, options = {}) {
         const baseName = sanitizeNodeName(clashProxy.name);
         const uniqueName = getUniqueName(baseName, usedNames);
         clashProxy.name = uniqueName;
+    }
+    preparePolicyProxyNames(proxies, levelKey, options);
 
+    for (const clashProxy of proxies) {
         const line = clashProxyToLoonResult(clashProxy);
         if (line) {
             proxyLines.push(line);
-            proxyNames.push(uniqueName);
+            proxyNames.push(clashProxy.name);
             proxiesWithMetadata.push(clashProxy);
         }
     }
@@ -344,7 +349,6 @@ resource-parser = https://raw.githubusercontent.com/sub-store-org/Sub-Store/mast
 
     sections.push(`[Proxy]\nDIRECT = direct\n${proxyLines.join('\n')}`);
 
-    const levelKey = (ruleLevel || 'std').toUpperCase();
     const policyFactory = POLICY_GROUPS[levelKey] || POLICY_GROUPS.STD;
     let abstractGroups = policyFactory(proxiesWithMetadata, options);
     if (levelKey === 'RELAY') {
